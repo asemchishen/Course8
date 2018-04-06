@@ -1,0 +1,92 @@
+---
+title: "Weight Lifting Exercises ML analysis"
+author: "Anton Semchishen"
+date: "06 April 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Getting and cleaning data
+
+The dataset was obtained from this authors:
+*Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.*
+Read more: http://groupware.les.inf.puc-rio.br/har%20data%20description#weight_lifting_exercises#ixzz5BjTBLt3e
+
+Dataset contains columns with missed values in form of NA, empty cells and #DIV/0!. 
+To simplify further data cleaning we can read in csv converting all types of missed values to NA.
+
+```{r}
+data1 <- read.csv("pml-training.csv", header=T, na.strings=c("","NA", "#DIV/0!"))
+```
+
+Next we can clean dataset from columns containing more than 50% of missed values. For this reason a simple function was created and applied to training set.
+
+```{r}
+NAclean <- function(dataframe, odds){
+        k <- NULL
+        i <- NULL
+        n <- NULL
+        info <- NULL
+        output <- NULL
+        for (i in 1:ncol(dataframe)) {
+                k <- 0
+                for (n in 1:nrow(dataframe)) {
+                        if (!is.na(dataframe[n,i])) {
+                                k = k+1
+                        }
+                }
+                if (k/nrow(dataframe) > odds) {
+                        output <- c(output, i)
+                } 
+        }
+        return(dataframe[,output])
+}
+data1 <- NAclean(data1, 0.6)
+```
+
+Now we have clean set with class value and 51 predictor.  
+
+## Feature selection
+
+In order to build an effective ML model we should select an adequate ammount of features. We will use recursive feature selection algorithm:
+
+```{r}
+require(caret)
+set.seed(12345)
+control <- rfeControl(functions=rfFuncs, method="cv", number=10)
+features <- rfe(data1[,1:51], data1[,52], sizes=c(1:8), rfeControl=control)
+print(features)
+```
+
+As result of RFE algorythm we can see that top 5 variables give 97% accuracy so we can create a test set only with them
+
+```{r}
+columns <- predictors(features)
+columns <- columns[1:5]
+columns <- c(columns, "classe")
+data1 <- data1[,columns]
+```
+
+Now we can perform a model training. Thus we have integer variables and we are predicting class we can use random forest algorithm (RF). In order to test our model we will leave 30% of data as test set.
+
+```{r}
+partition <- createDataPartition(data1$classe, p=0.7, list = FALSE)
+training <- data1[partition,]
+testing <- data1[-partition,]
+train_control <- trainControl(method="cv", number=10)
+modl1 <- train(classe~., training, method = "rf",  trControl = train_control)
+```
+
+Then use test set to determine model accuracy
+
+```{r}
+result <- predict(modl1, testing)
+confusionMatrix(result, testing$classe)
+```
+
+## Conclusion
+
+We have created a machine learning alrotythm that can determine mistakes while performing biceps curls with accuracy over 98%.
